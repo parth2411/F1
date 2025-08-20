@@ -1,4 +1,3 @@
-// frontend/src/types/f1.ts
 export interface DriverData {
   driver_number: string
   name: string

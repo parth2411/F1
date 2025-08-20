@@ -1,23 +1,16 @@
-// frontend/src/app/dashboard/page.tsx
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select'
-import LiveTiming from '@/components/dashboard/LiveTiming'
-import TelemetryChart from '@/components/telemetry/TelemetryChart'
-import F1Chatbot from '@/components/chat/F1Chatbot'
-import DriverComparison from '../../components/analysis/DriverComparison'
-import RaceStrategy from '../../components/strategy/RaceStrategy'
-import TrackMap from '../../components/track/TrackMap'
-import { useF1Data } from '../../hooks/useF1Data'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useF1Data } from '@/hooks/useF1Data'
+import LoadingSpinner from '@/components/common/LoadingSpinner'
 
 export default function DashboardPage() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString())
   const [selectedRound, setSelectedRound] = useState('')
   const [selectedSession, setSelectedSession] = useState('Race')
-  const [selectedMetrics, setSelectedMetrics] = useState(['speed', 'throttle'])
   
   const { 
     schedule, 
@@ -25,8 +18,13 @@ export default function DashboardPage() {
     telemetryData, 
     isLoading, 
     error,
+    loadSchedule,
     loadSession 
   } = useF1Data()
+
+  useEffect(() => {
+    loadSchedule(selectedYear)
+  }, [selectedYear, loadSchedule])
 
   useEffect(() => {
     if (selectedYear && selectedRound && selectedSession) {
@@ -34,11 +32,11 @@ export default function DashboardPage() {
     }
   }, [selectedYear, selectedRound, selectedSession, loadSession])
 
-  const handleMetricToggle = (metric: string) => {
-    setSelectedMetrics(prev => 
-      prev.includes(metric) 
-        ? prev.filter(m => m !== metric)
-        : [...prev, metric]
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner size="lg" />
+      </div>
     )
   }
 
@@ -92,6 +90,12 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {error && (
+          <div className="mb-6 bg-red-900/50 border border-red-500 text-red-200 px-4 py-3 rounded-md">
+            Error: {error}
+          </div>
+        )}
+
         {/* Main Content */}
         <Tabs defaultValue="live" className="space-y-6">
           <TabsList className="grid w-full grid-cols-6">
@@ -107,23 +111,44 @@ export default function DashboardPage() {
           <TabsContent value="live" className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
               <div className="lg:col-span-3">
-                {selectedRound && (
-                  <LiveTiming sessionId={`${selectedYear}-${selectedRound}-${selectedSession}`} />
-                )}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Live Timing</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {sessionData ? (
+                      <div className="space-y-4">
+                        <p className="text-gray-400">
+                          Session: {sessionData.session_info?.event_name} - {sessionData.session_info?.session_type}
+                        </p>
+                        <div className="text-sm text-gray-500">
+                          Live timing data will be displayed here when available
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8">
+                        <p className="text-gray-400">Select a session to view timing data</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
+              
               <div className="space-y-4">
                 <Card>
                   <CardHeader>
                     <CardTitle>Session Info</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {sessionData && (
+                    {sessionData ? (
                       <div className="space-y-2 text-sm">
                         <div><strong>Event:</strong> {sessionData.session_info?.event_name}</div>
                         <div><strong>Location:</strong> {sessionData.session_info?.location}</div>
                         <div><strong>Date:</strong> {sessionData.session_info?.date}</div>
                         <div><strong>Session:</strong> {sessionData.session_info?.session_type}</div>
                       </div>
+                    ) : (
+                      <p className="text-gray-400 text-sm">No session selected</p>
                     )}
                   </CardContent>
                 </Card>
@@ -133,12 +158,14 @@ export default function DashboardPage() {
                     <CardTitle>Weather</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {sessionData?.weather?.[0] && (
+                    {sessionData?.weather?.[0] ? (
                       <div className="space-y-2 text-sm">
                         <div><strong>Air Temp:</strong> {sessionData.weather[0].air_temp}°C</div>
                         <div><strong>Track Temp:</strong> {sessionData.weather[0].track_temp}°C</div>
                         <div><strong>Humidity:</strong> {sessionData.weather[0].humidity}%</div>
                       </div>
+                    ) : (
+                      <p className="text-gray-400 text-sm">No weather data</p>
                     )}
                   </CardContent>
                 </Card>
@@ -148,44 +175,86 @@ export default function DashboardPage() {
 
           {/* Telemetry Tab */}
           <TabsContent value="telemetry" className="space-y-6">
-            {telemetryData && (
-              <TelemetryChart
-                telemetryData={telemetryData}
-                selectedMetrics={selectedMetrics}
-                onMetricToggle={handleMetricToggle}
-              />
-            )}
+            <Card>
+              <CardHeader>
+                <CardTitle>Telemetry Analysis</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {telemetryData ? (
+                  <div className="text-center py-8">
+                    <p className="text-gray-400">Telemetry charts will be displayed here</p>
+                    <p className="text-sm text-gray-500 mt-2">
+                      Data available for visualization
+                    </p>
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-gray-400">No telemetry data available</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Analysis Tab */}
           <TabsContent value="analysis" className="space-y-6">
-            {sessionData && (
-              <DriverComparison sessionData={sessionData} />
-            )}
+            <Card>
+              <CardHeader>
+                <CardTitle>Driver Comparison</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center py-8">
+                  <p className="text-gray-400">Driver comparison tools will be available here</p>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Strategy Tab */}
           <TabsContent value="strategy" className="space-y-6">
-            {sessionData && (
-              <RaceStrategy sessionData={sessionData} />
-            )}
+            <Card>
+              <CardHeader>
+                <CardTitle>Race Strategy</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center py-8">
+                  <p className="text-gray-400">Strategy analysis will be displayed here</p>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Track Tab */}
           <TabsContent value="track" className="space-y-6">
-            {sessionData && telemetryData && (
-              <TrackMap 
-                circuitInfo={sessionData.circuit_info}
-                telemetryData={telemetryData}
-              />
-            )}
+            <Card>
+              <CardHeader>
+                <CardTitle>Track Map</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-center py-8">
+                  <p className="text-gray-400">Interactive track map will be shown here</p>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* AI Chat Tab */}
           <TabsContent value="chat" className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2">
-                <F1Chatbot sessionContext={sessionData} />
+                <Card>
+                  <CardHeader>
+                    <CardTitle>F1 AI Assistant</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-center py-8">
+                      <p className="text-gray-400">AI chatbot interface will be available here</p>
+                      <p className="text-sm text-gray-500 mt-2">
+                        Ask questions about F1 data, strategy, and more
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
               <div>
                 <Card>
@@ -194,18 +263,18 @@ export default function DashboardPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
-                      <Button variant="outline" className="w-full text-left justify-start">
-                        Explain DRS zones for this track
-                      </Button>
-                      <Button variant="outline" className="w-full text-left justify-start">
-                        Compare tire strategies
-                      </Button>
-                      <Button variant="outline" className="w-full text-left justify-start">
-                        Analyze fastest lap telemetry
-                      </Button>
-                      <Button variant="outline" className="w-full text-left justify-start">
-                        Weather impact on performance
-                      </Button>
+                      <div className="p-2 bg-gray-700 rounded text-sm text-gray-300">
+                        • Explain DRS zones for this track
+                      </div>
+                      <div className="p-2 bg-gray-700 rounded text-sm text-gray-300">
+                        • Compare tire strategies
+                      </div>
+                      <div className="p-2 bg-gray-700 rounded text-sm text-gray-300">
+                        • Analyze fastest lap telemetry
+                      </div>
+                      <div className="p-2 bg-gray-700 rounded text-sm text-gray-300">
+                        • Weather impact on performance
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

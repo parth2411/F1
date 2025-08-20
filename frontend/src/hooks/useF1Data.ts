@@ -1,6 +1,5 @@
-// frontend/src/hooks/useF1Data.ts
 import { useState, useCallback } from 'react'
-import { SessionData, Schedule, TelemetryData } from '../types/f1'
+import { SessionData, Schedule, TelemetryData } from '@/types/f1'
 
 export function useF1Data() {
   const [schedule, setSchedule] = useState<Schedule[]>([])
@@ -12,7 +11,7 @@ export function useF1Data() {
   const loadSchedule = useCallback(async (year: string) => {
     try {
       setIsLoading(true)
-      const response = await fetch(`/api/f1/schedule/${year}`)
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/f1/schedule/${year}`)
       const data = await response.json()
       
       if (data.success) {
@@ -29,10 +28,9 @@ export function useF1Data() {
 
   const loadSession = useCallback(async (year: string, round: string, session: string) => {
     try {
-      setIsLoading(true)
-      setError(null)
-      
-      const response = await fetch(`/api/f1/session/${year}/${round}/${session}`)
+    setIsLoading(true)
+    setError(null)
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/f1/session/${year}/${round}/${session}`)
       const data = await response.json()
       
       if (data.success) {
@@ -42,7 +40,7 @@ export function useF1Data() {
         const drivers = Object.keys(data.data.drivers)
         if (drivers.length > 0) {
           const fastestDriver = drivers[0] // Simplified - should find actual fastest
-          const telemetryResponse = await fetch(`/api/f1/telemetry/${year}/${round}/${session}/${fastestDriver}`)
+          const telemetryResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/f1/telemetry/${year}/${round}/${session}/${fastestDriver}`)
           const telemetryData = await telemetryResponse.json()
           
           if (telemetryData.success) {
@@ -57,9 +55,8 @@ export function useF1Data() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
-
-  return {
+    }, [])
+    return {
     schedule,
     sessionData,
     telemetryData,
@@ -67,5 +64,5 @@ export function useF1Data() {
     error,
     loadSchedule,
     loadSession
+    }
   }
-}
