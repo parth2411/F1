@@ -1,5 +1,4 @@
-version: '3.8'
-
+# Remove the version line as it's obsolete
 services:
   # PostgreSQL Database
   postgres:
@@ -9,6 +8,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Allow connections from host
+      POSTGRES_HOST_AUTH_METHOD: md5
     ports:
       - "${POSTGRES_PORT:-5433}:5432"
     volumes:
@@ -17,6 +18,18 @@ services:
     restart: unless-stopped
     networks:
       - f1_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    command: >
+      bash -c "
+      echo 'host all all 0.0.0.0/0 md5' >> /var/lib/postgresql/data/pg_hba.conf &&
+      echo 'host all all ::/0 md5' >> /var/lib/postgresql/data/pg_hba.conf &&
+      echo \"listen_addresses = '*'\" >> /var/lib/postgresql/data/postgresql.conf &&
+      docker-entrypoint.sh postgres
+      "
 
   # Redis Cache
   redis:
@@ -30,6 +43,11 @@ services:
     restart: unless-stopped
     networks:
       - f1_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
   postgres_data:
