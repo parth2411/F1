@@ -9,5 +9,9 @@
 /frontend/.env.local
 /backend/.env
 /f1-processor/.env
+/f1-processor/cache
+/f1-processor/cache/fastf1_http_cache.sqlite
+
+
 /ai-service/.env
 

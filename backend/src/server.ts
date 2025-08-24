@@ -6,6 +6,9 @@ import { createServer } from 'http'
 import { Server } from 'socket.io'
 import dotenv from 'dotenv'
 
+// Import F1 routes
+import f1Routes from './routes/f1'
+
 // Load environment variables
 dotenv.config()
 
@@ -43,10 +46,23 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'F1 Dashboard API is running!', timestamp: new Date() })
 })
 
-// Import and use route modules
-app.use('/api/auth', require('./routes/auth'))
-app.use('/api/f1', require('./routes/f1'))
-app.use('/api/chat', require('./routes/chat'))
+// F1 API Routes
+app.use('/api/f1', f1Routes)
+
+// Import other route modules if they exist
+try {
+  const authRoutes = require('./routes/auth')
+  app.use('/api/auth', authRoutes)
+} catch (error) {
+  console.log('Auth routes not found, skipping...')
+}
+
+try {
+  const chatRoutes = require('./routes/chat')
+  app.use('/api/chat', chatRoutes)
+} catch (error) {
+  console.log('Chat routes not found, skipping...')
+}
 
 // WebSocket handling
 io.on('connection', (socket) => {
@@ -81,7 +97,8 @@ const PORT = process.env.PORT || 8001
 server.listen(PORT, () => {
   console.log(`🚀 F1 Dashboard Backend running on port ${PORT}`)
   console.log(`🌐 Frontend URL: ${process.env.FRONTEND_URL}`)
-  console.log(`📊 Database: ${process.env.DATABASE_URL?.split('@')[1]}`)
+  console.log(`📊 Database: ${process.env.DATABASE_URL?.split('@')[1] || 'Not configured'}`)
+  console.log(`🏁 F1 API available at: http://localhost:${PORT}/api/f1`)
 })
 
 export { app, io }

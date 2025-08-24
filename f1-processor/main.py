@@ -11,6 +11,7 @@ import psycopg2.extras
 import redis
 import fastf1
 import pandas as pd
+import numpy as np
 from datetime import datetime, timezone
 from contextlib import contextmanager
 import logging
@@ -141,39 +142,191 @@ class F1DataProcessor:
             print(f"❌ Database connection test failed: {e}")
             raise
     
-    def process_sample_session(self):
-        """Process a sample session for testing"""
-        print("🏁 Processing sample F1 session...")
+    def process_multiple_sessions(self):
+        """Process multiple F1 sessions including 2025 data"""
+        print("🏁 Processing multiple F1 sessions...")
         
+        # Sessions to process (both 2024 and 2025)
+        sessions_to_process = [
+            # 2024 sessions
+            (2024, 'Saudi Arabia', 'R'),
+            (2024, 'Bahrain', 'R'),
+            (2024, 'Australia', 'R'),
+            (2024, 'Japan', 'R'),
+            (2024, 'China', 'R'),
+            
+            # 2025 sessions (if available)
+            (2025, 'Bahrain', 'R'),
+            (2025, 'Saudi Arabia', 'R'),
+            (2025, 'Australia', 'R'),
+            (2025, 'Japan', 'R'),
+            (2025, 'China', 'R'),
+        ]
+        
+        processed_count = 0
+        failed_count = 0
+        
+        for year, location, session_type in sessions_to_process:
+            try:
+                print(f"\n🔄 Processing {year} {location} {session_type}...")
+                
+                # Try to load the session
+                session = fastf1.get_session(year, location, session_type)
+                session.load()
+                
+                print(f"✅ Loaded session: {session.event['EventName']} - {session.name}")
+                print(f"📊 Found {len(session.drivers)} drivers")
+                
+                # Process and store in database
+                with self.get_db_connection() as conn:
+                    # Convert numpy types from session event data
+                    session_year = self.convert_numpy_types(year)
+                    round_number = self.convert_numpy_types(session.event['RoundNumber'])
+                    event_name = str(session.event['EventName'])
+                    
+                    session_id = self.create_session_record(
+                        conn, session_year, round_number, 
+                        session_type, event_name
+                    )
+                    
+                    # Store drivers
+                    for driver_number in session.drivers:
+                        driver_info = session.get_driver(driver_number)
+                        self.store_driver_info(conn, driver_info, event_name)
+                    
+                    # Store some lap times (sample)
+                    self.store_sample_lap_times(conn, session_id, session)
+                    
+                    conn.commit()
+                    print(f"✅ Successfully processed session {session_id}")
+                    processed_count += 1
+                    
+            except Exception as e:
+                print(f"❌ Failed to process {year} {location} {session_type}: {e}")
+                failed_count += 1
+                continue
+        
+        print(f"\n📊 Processing Summary:")
+        print(f"✅ Successfully processed: {processed_count} sessions")
+        print(f"❌ Failed to process: {failed_count} sessions")
+        
+        return processed_count > 0
+
+    def store_sample_lap_times(self, conn, session_id, session):
+        """Store sample lap times for the session"""
         try:
-            # Load a recent session (2024 Saudi Arabia GP)
-            session = fastf1.get_session(2024, 'Saudi Arabia', 'R')
-            session.load()
+            print(f"💾 Storing lap times for session {session_id}...")
             
-            print(f"✅ Loaded session: {session.event['EventName']} - {session.name}")
-            print(f"📊 Found {len(session.drivers)} drivers")
+            # Get laps data for first few drivers
+            sample_drivers = list(session.drivers)[:5]  # Process first 5 drivers
             
-            # Process drivers and store in database
-            with self.get_db_connection() as conn:
-                session_id = self.create_session_record(
-                    conn, 2024, session.event['RoundNumber'], 
-                    'Race', session.event['EventName']
-                )
-                
-                for driver_number in session.drivers:
-                    driver_info = session.get_driver(driver_number)
-                    self.store_driver_info(conn, driver_info, session.event['EventName'])
-                
-                conn.commit()
-                print(f"✅ Successfully processed session {session_id}")
-                
+            for driver_number in sample_drivers:
+                try:
+                    driver_laps = session.laps.pick_driver(driver_number)
+                    
+                    if len(driver_laps) == 0:
+                        continue
+                        
+                    # Store first 10 laps for each driver
+                    for i, lap in driver_laps.head(10).iterrows():
+                        lap_time = self.convert_numpy_types(lap.get('LapTime', None))
+                        lap_number = self.convert_numpy_types(lap.get('LapNumber', i + 1))
+                        
+                        # Convert timedelta to seconds if present
+                        if lap_time and hasattr(lap_time, 'total_seconds'):
+                            lap_time = lap_time.total_seconds()
+                        elif lap_time and str(lap_time) != 'nan':
+                            lap_time = float(lap_time)
+                        else:
+                            lap_time = None
+                        
+                        with conn.cursor() as cur:
+                            cur.execute("""
+                                INSERT INTO lap_times (
+                                    session_id, driver_number, lap_number, lap_time,
+                                    sector1_time, sector2_time, sector3_time,
+                                    compound, tyre_life, position
+                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (session_id, driver_number, lap_number) 
+                                DO UPDATE SET
+                                    lap_time = EXCLUDED.lap_time,
+                                    sector1_time = EXCLUDED.sector1_time,
+                                    sector2_time = EXCLUDED.sector2_time,
+                                    sector3_time = EXCLUDED.sector3_time,
+                                    compound = EXCLUDED.compound,
+                                    tyre_life = EXCLUDED.tyre_life,
+                                    position = EXCLUDED.position
+                            """, (
+                                session_id,
+                                str(driver_number),
+                                lap_number,
+                                lap_time,
+                                None,  # sector times - would need additional processing
+                                None,
+                                None,
+                                str(lap.get('Compound', 'UNKNOWN'))[:10] if lap.get('Compound') else None,
+                                self.convert_numpy_types(lap.get('TyreLife', None)),
+                                self.convert_numpy_types(lap.get('Position', None))
+                            ))
+                            
+                except Exception as driver_error:
+                    print(f"⚠️ Could not process laps for driver {driver_number}: {driver_error}")
+                    continue
+            
+            print(f"✅ Stored lap times for {len(sample_drivers)} drivers")
+            
         except Exception as e:
-            print(f"❌ Error processing session: {e}")
-            raise
+            print(f"❌ Error storing lap times: {e}")
+
+    def get_available_sessions(self, year):
+        """Get list of available sessions for a year"""
+        try:
+            print(f"🔍 Checking available sessions for {year}...")
+            
+            # Common F1 locations that usually have races
+            common_locations = [
+                'Bahrain', 'Saudi Arabia', 'Australia', 'Japan', 'China',
+                'Miami', 'Italy', 'Monaco', 'Spain', 'Canada', 
+                'Austria', 'Great Britain', 'Hungary', 'Belgium',
+                'Netherlands', 'Singapore', 'United States', 'Mexico',
+                'Brazil', 'Las Vegas', 'Qatar', 'Abu Dhabi'
+            ]
+            
+            available_sessions = []
+            
+            for location in common_locations[:10]:  # Check first 10 to avoid too many requests
+                try:
+                    # Try to get session info (this will fail if not available)
+                    session = fastf1.get_session(year, location, 'R')
+                    
+                    # This will raise an exception if no data available
+                    session_info = session.event
+                    
+                    available_sessions.append({
+                        'location': location,
+                        'event_name': session_info.get('EventName', location),
+                        'round': session_info.get('RoundNumber', 0)
+                    })
+                    print(f"✅ Found: {location}")
+                    
+                except Exception:
+                    # Session not available - skip
+                    continue
+            
+            print(f"📊 Found {len(available_sessions)} available sessions for {year}")
+            return available_sessions
+            
+        except Exception as e:
+            print(f"❌ Error checking available sessions: {e}")
+            return []
     
     def create_session_record(self, conn, year, round_number, session_type, event_name):
         """Create session record and return session ID"""
         try:
+            # Convert numpy types to Python types
+            year = self.convert_numpy_types(year)
+            round_number = self.convert_numpy_types(round_number)
+            
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 # Check if session already exists
                 cur.execute("""
@@ -204,12 +357,28 @@ class F1DataProcessor:
             print(f"❌ Error creating session: {e}")
             raise
     
+    def convert_numpy_types(self, value):
+        """Convert numpy types to Python native types"""
+        import numpy as np
+        
+        if isinstance(value, np.integer):
+            return int(value)
+        elif isinstance(value, np.floating):
+            return float(value)
+        elif isinstance(value, np.ndarray):
+            return value.tolist()
+        elif hasattr(value, 'item'):  # For numpy scalars
+            return value.item()
+        else:
+            return value
+    
     def store_driver_info(self, conn, driver_info, event_name):
         """Store driver information in database"""
         try:
-            driver_number = driver_info['DriverNumber']
-            abbreviation = driver_info['Abbreviation']
-            full_name = driver_info['FullName']
+            # Convert numpy types to Python types
+            driver_number = self.convert_numpy_types(driver_info['DriverNumber'])
+            abbreviation = str(driver_info['Abbreviation'])
+            full_name = str(driver_info['FullName'])
             
             # Split full name into first and last
             name_parts = full_name.split(' ', 1)
@@ -255,10 +424,22 @@ def main():
         # Test database connection
         processor.test_database_connection()
         
-        # Process a sample session
-        processor.process_sample_session()
+        # Check what sessions are available for 2025
+        available_2025 = processor.get_available_sessions(2025)
+        print(f"\n📅 2025 Sessions Available: {len(available_2025)}")
+        for session in available_2025:
+            print(f"   - {session['event_name']} (Round {session['round']})")
         
-        print("✅ F1 Data Processor completed successfully!")
+        # Process multiple sessions (2024 and 2025)
+        success = processor.process_multiple_sessions()
+        
+        if success:
+            print("\n✅ F1 Data Processor completed successfully!")
+            print("🌐 Your F1 dashboard now has fresh data!")
+            print("💡 Start your backend server to see the data on your frontend!")
+        else:
+            print("\n⚠️  No sessions were processed successfully")
+            print("💡 This might be because 2025 season data isn't available yet")
         
     except Exception as e:
         print(f"❌ F1 Data Processor failed: {e}")
