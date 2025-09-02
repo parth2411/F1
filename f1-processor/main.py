@@ -373,7 +373,7 @@ class F1DataProcessor:
             return value
     
     def store_driver_info(self, conn, driver_info, event_name):
-        """Store driver information in database"""
+        """Store driver information in database - handles Oliver Bearman #38→#87 number change"""
         try:
             # Convert numpy types to Python types
             driver_number = self.convert_numpy_types(driver_info['DriverNumber'])
@@ -386,7 +386,18 @@ class F1DataProcessor:
             last_name = name_parts[1] if len(name_parts) > 1 else ''
             
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                # Insert or update driver
+                # Special handling for Oliver Bearman (BEA) permanent number assignment
+                if abbreviation == 'BEA' and str(driver_number) == '87':
+                    print(f"   🏎️ Processing Oliver Bearman's permanent number: #87")
+                    # Mark his old substitute numbers (38, 50) as inactive
+                    cur.execute("""
+                        UPDATE drivers 
+                        SET is_active = false
+                        WHERE driver_code = 'BEA' AND driver_number IN ('38', '50')
+                    """)
+                    print(f"   📝 Deactivated Oliver's substitute numbers")
+                
+                # Insert or update driver (now works without unique constraint on driver_code)
                 cur.execute("""
                     INSERT INTO drivers (driver_number, driver_code, full_name, first_name, last_name, is_active)
                     VALUES (%s, %s, %s, %s, %s, %s)
@@ -405,11 +416,12 @@ class F1DataProcessor:
                     True
                 ))
                 
-                print(f"✅ Driver: {driver_number} - {full_name}")
+                print(f"✅ Driver: {driver_number} - {full_name} ({abbreviation})")
                 
         except Exception as e:
             print(f"❌ Error with driver {driver_number}: {e}")
-            raise
+            # Don't raise - let processing continue with other drivers
+            pass
 
 def main():
     """Main function"""
