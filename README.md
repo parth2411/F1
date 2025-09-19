@@ -1,4 +1,4 @@
-**Coming Soon**
+*Update and full guideline coming Soon*
 ```text
 ├── .gitignore
 ├── README.md
